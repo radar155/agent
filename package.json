@@ -1,0 +1,31 @@
+{
+  "name": "termagent",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "cli": "tsx ./src/cli.ts",
+    "http": "tsx ./src/http.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@langchain/langgraph": "^1.0.4",
+    "@langchain/mcp-adapters": "^1.0.3",
+    "@langchain/openai": "^1.1.3",
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "langchain": "^1.1.5",
+    "readline": "^1.3.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^25.0.0",
+    "tsx": "^4.21.0"
+  }
+}
