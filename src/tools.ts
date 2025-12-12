@@ -10,6 +10,15 @@ export const getCurrentTime = tool(
   }
 );
 
+export const getCurrentTemperature = tool(
+  () => '10',
+  {
+    name: "get_current_temperature",
+    description: "Get the current temperature",
+    schema: z.object({}),
+  }
+);
+
 export const getGreeting = tool(
   async ({ hour }) => {
     const h = parseInt(hour, 10);
@@ -28,4 +37,4 @@ export const getGreeting = tool(
   }
 );
 
-export const tools = [getCurrentTime, getGreeting];
+export const tools = [getCurrentTime, getGreeting, getCurrentTemperature];
