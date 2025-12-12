@@ -13,6 +13,7 @@
       background: #1a1a2e;
       color: #eee;
       height: 100vh;
+      transition: background-color 0.8s ease-in-out;
     }
     #app {
       height: 100%;
@@ -431,6 +432,11 @@
                     lastTool.result = event.content;
                   }
                   scrollToBottom();
+                }
+                else if (event.type === 'ui_action') {
+                  if (event.action === 'change_background' && event.payload?.color) {
+                    document.body.style.backgroundColor = event.payload.color;
+                  }
                 }
                 else if (event.type === 'error') {
                   messages.value.push({ type: 'assistant', content: `❌ Errore: ${event.message}` });

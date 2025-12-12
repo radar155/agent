@@ -18,6 +18,7 @@ type SSEEvent =
   | { type: "tool_call"; name: string; args: unknown }
   | { type: "tool_result"; content: string }
   | { type: "thread_id"; threadId: string }
+  | { type: "ui_action"; action: string; payload: unknown }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -58,7 +59,16 @@ app.post("/chat", async (req: Request, res: Response) => {
   await parseAgentStream(stream as AsyncIterable<[string, unknown]>, {
     onToken: (content) => sendSSE(res, { type: "token", content }),
     onToolCall: (name, args) => sendSSE(res, { type: "tool_call", name, args }),
-    onToolResult: (content) => sendSSE(res, { type: "tool_result", content }),
+    onToolResult: (content, toolName) => {
+      sendSSE(res, { type: "tool_result", content });
+      if (toolName === "change_background") {
+        sendSSE(res, {
+          type: "ui_action",
+          action: "change_background",
+          payload: { color: content },
+        });
+      }
+    },
     onDone: () => sendSSE(res, { type: "done" }),
     onError: (error) => sendSSE(res, { type: "error", message: error.message }),
   });
