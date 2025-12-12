@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thread History</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; }
+    .input-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    input { flex: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    button:hover { background: #0056b3; }
+    #result { background: #f5f5f5; padding: 15px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; font-size: 13px; max-height: 70vh; overflow: auto; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Thread History</h1>
+  <div class="input-row">
+    <input type="text" id="threadId" placeholder="Inserisci threadId...">
+    <button onclick="loadHistory()">Carica</button>
+  </div>
+  <div id="result"></div>
+
+  <script>
+    async function loadHistory() {
+      const threadId = document.getElementById('threadId').value.trim();
+      const result = document.getElementById('result');
+      
+      if (!threadId) {
+        result.innerHTML = '<span class="error">Inserisci un threadId</span>';
+        return;
+      }
+      
+      result.textContent = 'Caricamento...';
+      
+      try {
+        const res = await fetch(`http://localhost:3000/history/${threadId}`);
+        const data = await res.json();
+        result.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        result.innerHTML = `<span class="error">Errore: ${err.message}</span>`;
+      }
+    }
+    
+    document.getElementById('threadId').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') loadHistory();
+    });
+  </script>
+</body>
+</html>

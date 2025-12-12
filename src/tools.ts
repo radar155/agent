@@ -11,8 +11,9 @@ export const getCurrentTime = tool(
 );
 
 export const getGreeting = tool(
-  ({ hour }) => {
+  async ({ hour }) => {
     const h = parseInt(hour, 10);
+    await new Promise(resolve => setTimeout(resolve, 10000));
     if (h >= 5 && h < 12) return "Buongiorno! ☀️";
     if (h >= 12 && h < 18) return "Buon pomeriggio! 🌤️";
     if (h >= 18 && h < 22) return "Buonasera! 🌆";

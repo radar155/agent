@@ -1,8 +1,10 @@
 import "dotenv/config";
 import express, { Request, Response } from "express";
 import cors from "cors";
+import crypto from "crypto";
 import { agent } from "./agent";
 import { parseAgentStream } from "./streamParser";
+import { listThreads } from "./memory/listThreads";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +17,7 @@ type SSEEvent =
   | { type: "token"; content: string }
   | { type: "tool_call"; name: string; args: unknown }
   | { type: "tool_result"; content: string }
+  | { type: "thread_id"; threadId: string }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -22,9 +25,14 @@ function sendSSE(res: Response, event: SSEEvent) {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
+function generateThreadId(): string {
+  return crypto.randomUUID();
+}
+
 // POST /chat - Avvia una chat con streaming SSE
 app.post("/chat", async (req: Request, res: Response) => {
-  const { message, threadId = "chat-1" } = req.body;
+  const { message, threadId } = req.body;
+  const actualThreadId = threadId || generateThreadId();
 
   if (!message) {
     res.status(400).json({ error: "message is required" });
@@ -37,7 +45,10 @@ app.post("/chat", async (req: Request, res: Response) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  const threadConfig = { configurable: { thread_id: threadId } };
+  // Invia subito il threadId al client
+  sendSSE(res, { type: "thread_id", threadId: actualThreadId });
+
+  const threadConfig = { configurable: { thread_id: actualThreadId } };
 
   const stream = await agent.stream(
     { messages: [{ role: "user", content: message }] },
@@ -55,16 +66,32 @@ app.post("/chat", async (req: Request, res: Response) => {
   res.end();
 });
 
-// GET /state/:threadId - Ottieni lo stato della conversazione
-app.get("/state/:threadId", async (req: Request, res: Response) => {
+// GET /history/:threadId - Ottieni i messaggi della conversazione
+app.get("/history/:threadId", async (req: Request, res: Response) => {
   const { threadId } = req.params;
   const threadConfig = { configurable: { thread_id: threadId } };
 
   try {
-    const state = agent.getState(threadConfig);
-    res.json(state);
+    const state = (await agent.getState(threadConfig)) as any;
+    res.json({
+      threadId,
+      messages: state?.values?.messages ?? [],
+    });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: errorMessage });
+  }
+});
+
+// GET /threads - Lista tutti i thread salvati
+app.get("/threads", async (_req: Request, res: Response) => {
+  try {
+    const threads = await listThreads();
+    res.json({ threads });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: errorMessage });
   }
 });
@@ -77,7 +104,8 @@ app.get("/health", (_req: Request, res: Response) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`\nEndpoints:`);
-  console.log(`  POST /chat         - Send message (SSE streaming)`);
-  console.log(`  GET  /state/:id    - Get conversation state`);
-  console.log(`  GET  /health       - Health check`);
+  console.log(`  POST /chat           - Send message (SSE streaming)`);
+  console.log(`  GET  /history/:id    - Get full conversation history`);
+  console.log(`  GET  /threads        - List all saved threads`);
+  console.log(`  GET  /health         - Health check`);
 });
