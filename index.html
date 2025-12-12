@@ -419,6 +419,7 @@
                   currentAssistantIndex = null;
                   messages.value.push({
                     type: 'tool',
+                    id: event.id,
                     name: event.name,
                     args: event.args,
                     result: null
@@ -426,9 +427,9 @@
                   scrollToBottom();
                 }
                 else if (event.type === 'tool_result') {
-                  const lastTool = [...messages.value].reverse().find(m => m.type === 'tool');
-                  if (lastTool) {
-                    lastTool.result = event.content;
+                  const toolMsg = messages.value.find(m => m.type === 'tool' && m.id === event.id);
+                  if (toolMsg) {
+                    toolMsg.result = event.content;
                   }
                   scrollToBottom();
                 }

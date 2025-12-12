@@ -1,7 +1,7 @@
 export type StreamCallbacks = {
   onToken: (content: string) => void;
-  onToolCall: (name: string, args: unknown) => void;
-  onToolResult: (content: string) => void;
+  onToolCall: (id: string, name: string, args: unknown) => void;
+  onToolResult: (id: string, content: string) => void;
   onDone: () => void;
   onError: (error: Error) => void;
 };
@@ -17,14 +17,16 @@ export async function parseAgentStream(
         const toolCalls = msg?.tool_calls || msg?.kwargs?.tool_calls;
         if (toolCalls?.length) {
           for (const tc of toolCalls) {
-            callbacks.onToolCall(tc.name, tc.args);
+            callbacks.onToolCall(tc.id, tc.name, tc.args);
           }
         }
       } else if (mode === "updates" && (chunk as any).tools) {
-        const toolMsg = (chunk as any).tools.messages?.[0];
-        const content = toolMsg?.content || toolMsg?.kwargs?.content;
-        if (content) {
-          callbacks.onToolResult(String(content));
+        for (const toolMsg of (chunk as any).tools.messages || []) {
+          const content = toolMsg?.content || toolMsg?.kwargs?.content;
+          const toolCallId = toolMsg?.tool_call_id || toolMsg?.kwargs?.tool_call_id;
+          if (content && toolCallId) {
+            callbacks.onToolResult(toolCallId, String(content));
+          }
         }
       } else if (mode === "messages") {
         const [messageChunk, metadata] = chunk as any;
