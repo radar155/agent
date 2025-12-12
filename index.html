@@ -430,6 +430,7 @@
                   const toolMsg = messages.value.find(m => m.type === 'tool' && m.id === event.id);
                   if (toolMsg) {
                     toolMsg.result = event.content;
+                    // event.name disponibile per uso futuro
                   }
                   scrollToBottom();
                 }

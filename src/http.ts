@@ -16,7 +16,7 @@ app.use(express.json());
 type SSEEvent =
   | { type: "token"; content: string }
   | { type: "tool_call"; id: string; name: string; args: unknown }
-  | { type: "tool_result"; id: string; content: string }
+  | { type: "tool_result"; id: string; name: string; content: string }
   | { type: "thread_id"; threadId: string }
   | { type: "done" }
   | { type: "error"; message: string };
@@ -58,7 +58,7 @@ app.post("/chat", async (req: Request, res: Response) => {
   await parseAgentStream(stream as AsyncIterable<[string, unknown]>, {
     onToken: (content) => sendSSE(res, { type: "token", content }),
     onToolCall: (id, name, args) => sendSSE(res, { type: "tool_call", id, name, args }),
-    onToolResult: (id, content) => sendSSE(res, { type: "tool_result", id, content }),
+    onToolResult: (id, name, content) => sendSSE(res, { type: "tool_result", id, name, content }),
     onDone: () => sendSSE(res, { type: "done" }),
     onError: (error) => sendSSE(res, { type: "error", message: error.message }),
   });
