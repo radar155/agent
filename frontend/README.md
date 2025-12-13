@@ -103,32 +103,41 @@ interface ToolResultEvent {
 
 ## API programmatica
 
-Il componente espone metodi accessibili tramite `ref`:
+Il componente espone metodi accessibili tramite `ref` per inviare messaggi come se fossero scritti dall'utente (human message).
 
 ```typescript
 interface AgentChatExpose {
+  /** Invia un human message programmaticamente */
   sendMessage: (message: string) => Promise<void>
 }
 ```
 
 ### Esempio
 
+Utile per pre-popolare la chat con una domanda iniziale o per integrare con altri elementi dell'interfaccia:
+
 ```vue
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { AgentChat } from '@energeeno/agent-chat'
 import type { AgentChatExpose } from '@energeeno/agent-chat'
 
 const chatRef = ref<AgentChatExpose | null>(null)
 
-async function inviaMessaggio() {
-  await chatRef.value?.sendMessage('Ciao, come posso aiutarti?')
+// Invia una domanda iniziale quando il componente è montato
+onMounted(() => {
+  chatRef.value?.sendMessage('Qual è il meteo a Roma?')
+})
+
+// Oppure da un bottone esterno
+function chiediPrevisioni() {
+  chatRef.value?.sendMessage('Mostrami le previsioni per domani')
 }
 </script>
 
 <template>
   <AgentChat ref="chatRef" api-url="http://localhost:3000" />
-  <button @click="inviaMessaggio">Invia</button>
+  <button @click="chiediPrevisioni">Chiedi previsioni</button>
 </template>
 ```
 
@@ -274,26 +283,67 @@ npm run build
 
 La libreria si aspetta un backend con questi endpoint:
 
-| Endpoint | Metodo | Descrizione |
-|----------|--------|-------------|
-| `/chat` | POST | Invia messaggio, ritorna stream SSE |
-| `/threads` | GET | Lista tutti i thread |
-| `/history/:threadId` | GET | Messaggi di un thread |
+### `POST /chat`
 
-### Formato SSE `/chat`
+Invia un messaggio all'agente e riceve la risposta in streaming SSE.
 
+**Request:**
 ```typescript
-// Request body
-{ message: string, threadId?: string }
-
-// SSE events
-{ type: 'thread_id', threadId: string }
-{ type: 'token', content: string }
-{ type: 'tool_call', id: string, name: string, args: object }
-{ type: 'tool_result', id: string, name: string, content: string }
-{ type: 'done' }
-{ type: 'error', message: string }
+{
+  message: string      // Testo del messaggio utente
+  threadId?: string    // ID conversazione (opzionale, se omesso ne crea una nuova)
+}
 ```
+
+**Response:** Stream SSE con i seguenti eventi:
+
+| Evento | Payload | Quando viene emesso |
+|--------|---------|---------------------|
+| `thread_id` | `{ threadId: string }` | Subito all'inizio, comunica l'ID della conversazione (nuovo o esistente) |
+| `token` | `{ content: string }` | Per ogni token generato dall'LLM durante lo streaming della risposta |
+| `tool_call` | `{ id: string, name: string, args: object }` | Quando l'agente decide di chiamare un tool, prima dell'esecuzione |
+| `tool_result` | `{ id: string, name: string, content: string }` | Quando un tool completa l'esecuzione e restituisce il risultato |
+| `done` | `{}` | Quando l'agente ha completato la risposta |
+| `error` | `{ message: string }` | In caso di errore durante l'elaborazione |
+
+**Flusso tipico con GPT-4o:**
+```
+thread_id → tool_call → tool_result → token → token → ... → done
+```
+
+> **Nota**: Con modelli OpenAI (GPT-4o, GPT-4, ecc.) quando l'agente decide di chiamare un tool, non emette token di testo prima della chiamata. I token della risposta arrivano solo dopo aver ricevuto i risultati dei tool.
+
+---
+
+### `GET /threads`
+
+Restituisce la lista di tutte le conversazioni salvate.
+
+**Response:**
+```typescript
+{
+  threads: string[]    // Array di thread ID
+}
+```
+
+---
+
+### `GET /history/:threadId`
+
+Restituisce lo storico completo dei messaggi di una conversazione.
+
+**Request:**
+- `threadId` (path param): ID della conversazione
+
+**Response:**
+```typescript
+{
+  threadId: string
+  messages: LangChainMessage[]   // Array di messaggi in formato LangChain
+}
+```
+
+I messaggi sono in formato LangChain serializzato e vengono convertiti internamente dalla libreria nel formato di visualizzazione.
 
 ---
 
