@@ -3,7 +3,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import crypto from "crypto";
 import { agent } from "./agent";
-import { parseAgentStream } from "./streamParser";
+import { parseAgentStream } from "./streamParser/index.js";
 import { listThreads } from "./memory/listThreads";
 
 const app = express();
@@ -15,7 +15,8 @@ app.use(express.json());
 // SSE Event Types
 type SSEEvent =
   | { type: "token"; content: string }
-  | { type: "tool_call"; id: string; name: string; args: unknown }
+  | { type: "thinking"; content: string }
+  | { type: "tool_call"; id: string; name: string; args: Record<string, unknown>; isComplete: boolean }
   | { type: "tool_result"; id: string; name: string; content: string }
   | { type: "thread_id"; threadId: string }
   | { type: "done" }
@@ -57,7 +58,8 @@ app.post("/chat", async (req: Request, res: Response) => {
 
   await parseAgentStream(stream as AsyncIterable<[string, unknown]>, {
     onToken: (content) => sendSSE(res, { type: "token", content }),
-    onToolCall: (id, name, args) => sendSSE(res, { type: "tool_call", id, name, args }),
+    onThinking: (content) => sendSSE(res, { type: "thinking", content }),
+    onToolCall: (id, name, args, isComplete) => sendSSE(res, { type: "tool_call", id, name, args, isComplete }),
     onToolResult: (id, name, content) => sendSSE(res, { type: "tool_result", id, name, content }),
     onDone: () => sendSSE(res, { type: "done" }),
     onError: (error) => sendSSE(res, { type: "error", message: error.message }),

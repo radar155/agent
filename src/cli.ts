@@ -2,7 +2,7 @@ import "dotenv/config";
 import * as readline from "readline";
 import * as fs from "fs";
 import { agent } from "./agent";
-import { parseAgentStream } from "./streamParser";
+import { parseAgentStream } from "./streamParser/index.js";
 
 const threadConfig = { configurable: { thread_id: "chat-1" } };
 

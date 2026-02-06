@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Test</title>
+  <title>Chat Agent</title>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -14,11 +15,8 @@
       color: #eee;
       height: 100vh;
     }
-    #app {
-      height: 100%;
-      display: flex;
-    }
-    /* Sidebar */
+    #app { height: 100%; display: flex; }
+    
     .sidebar {
       width: 260px;
       background: #16213e;
@@ -26,10 +24,7 @@
       display: flex;
       flex-direction: column;
     }
-    .sidebar-header {
-      padding: 16px;
-      border-bottom: 1px solid #333;
-    }
+    .sidebar-header { padding: 16px; border-bottom: 1px solid #333; }
     .sidebar-header button {
       width: 100%;
       padding: 12px;
@@ -41,11 +36,7 @@
       cursor: pointer;
     }
     .sidebar-header button:hover { background: #3c5aa6; }
-    .thread-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px;
-    }
+    .thread-list { flex: 1; overflow-y: auto; padding: 8px; }
     .thread-item {
       padding: 12px;
       border-radius: 8px;
@@ -59,25 +50,22 @@
     }
     .thread-item:hover { background: #2d3436; }
     .thread-item.active { background: #4a69bd; color: white; }
-    /* Main chat area */
-    .main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
+    
+    .main { flex: 1; display: flex; flex-direction: column; }
     .chat {
       flex: 1;
       overflow-y: auto;
       padding: 20px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 16px;
     }
+    
     .msg {
-      max-width: 80%;
-      padding: 12px 16px;
+      max-width: 85%;
+      padding: 14px 18px;
       border-radius: 16px;
-      line-height: 1.5;
+      line-height: 1.6;
       word-break: break-word;
     }
     .msg.user {
@@ -85,61 +73,105 @@
       background: #4a69bd;
       white-space: pre-wrap;
     }
-    .msg.assistant {
+    
+    /* Assistant turn - un unico contenitore */
+    .assistant-turn {
       align-self: flex-start;
+      max-width: 85%;
       background: #2d3436;
+      border-radius: 16px;
+      padding: 14px 18px;
+      line-height: 1.6;
     }
-    /* Markdown styles */
-    .msg.assistant p { margin: 0; }
-    .msg.assistant p + p { margin-top: 0.5em; }
-    .msg.assistant code {
+    
+    /* Tool inline nel messaggio */
+    .tool-block {
+      background: #252535;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 10px 0;
+      font-size: 0.9em;
+    }
+    .tool-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tool-icon { font-size: 1em; }
+    .tool-name { color: #f39c12; font-weight: 600; }
+    .tool-details { margin-top: 6px; padding-left: 20px; }
+    .tool-path { color: #74b9ff; font-family: 'Consolas', monospace; font-size: 0.9em; }
+    .tool-description { color: #bbb; font-size: 0.9em; margin-top: 2px; font-style: italic; }
+    .tool-status {
+      margin-top: 6px;
+      padding-left: 20px;
+      font-size: 0.85em;
+    }
+    .tool-status.generating { color: #9b59b6; font-style: italic; }
+    .tool-status.running { color: #888; font-style: italic; }
+    .tool-status.done { color: #27ae60; }
+    
+    /* Chart */
+    .chart-container {
+      background: #252535;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 10px 0;
+    }
+    .chart-title {
+      color: #fff;
+      font-weight: 600;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .chart-canvas {
+      max-height: 300px;
+    }
+    
+    /* HTML Iframe */
+    .html-render-container {
+      background: #252535;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 10px 0;
+    }
+    .html-render-title {
+      color: #fff;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 0.9em;
+    }
+    .html-frame {
+      width: 100%;
+      border: none;
+      border-radius: 4px;
+      background: #fff;
+      overflow: hidden;
+    }
+    
+    /* Markdown */
+    .assistant-turn p { margin: 0; }
+    .assistant-turn p + p { margin-top: 0.5em; }
+    .assistant-turn code {
       background: #1a1a2e;
       padding: 2px 6px;
       border-radius: 4px;
       font-family: 'Consolas', monospace;
       font-size: 0.9em;
     }
-    .msg.assistant pre {
+    .assistant-turn pre {
       background: #1a1a2e;
       padding: 12px;
       border-radius: 8px;
       overflow-x: auto;
       margin: 0.5em 0;
     }
-    .msg.assistant pre code {
-      background: none;
-      padding: 0;
-    }
-    .msg.assistant ul, .msg.assistant ol {
-      margin: 0.5em 0;
-      padding-left: 20px;
-    }
-    .msg.assistant li { margin: 0; padding: 0; }
-    .msg.assistant li p { margin: 0; display: inline; }
-    .msg.assistant strong { color: #fff; }
-    .msg.assistant a { color: #74b9ff; }
-    .msg.assistant > *:first-child { margin-top: 0; }
-    .msg.assistant > *:last-child { margin-bottom: 0; }
-    .tool-execution {
-      align-self: flex-start;
-      background: #2d3436;
-      border-radius: 12px;
-      padding: 10px 14px;
-      font-size: 0.85em;
-      max-width: 80%;
-    }
-    .tool-call {
-      border-left: 3px solid #f39c12;
-      padding-left: 10px;
-      margin-bottom: 6px;
-    }
-    .tool-result {
-      border-left: 3px solid #27ae60;
-      padding-left: 10px;
-      opacity: 0.9;
-    }
-    .tool-name { color: #f39c12; font-weight: 600; }
-    .tool-args { color: #888; font-size: 0.9em; }
+    .assistant-turn pre code { background: none; padding: 0; }
+    .assistant-turn ul, .assistant-turn ol { margin: 0.5em 0; padding-left: 20px; }
+    .assistant-turn li { margin: 0; padding: 0; }
+    .assistant-turn strong { color: #fff; }
+    .assistant-turn a { color: #74b9ff; }
+    
     .input-area {
       display: flex;
       padding: 16px;
@@ -178,6 +210,18 @@
       color: #666;
       font-size: 18px;
     }
+    .loading-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: #4a69bd;
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -186,101 +230,67 @@
   </div>
 
   <script>
-    const { createApp, ref, nextTick, defineComponent, onMounted } = Vue;
+    const { createApp, ref, reactive, nextTick, defineComponent, onMounted, computed } = Vue;
     const API_URL = 'http://localhost:3000';
 
-    // ============================================
-    // ADAPTER: converte history API → formato interno
-    // ============================================
+    // Converte history API → formato interno
     function parseHistoryToMessages(langchainMessages) {
       const messages = [];
-      const pendingToolCalls = new Map();
+      let currentItems = null;
+      let currentText = '';
+      const toolMap = new Map();
+
+      const flushText = () => {
+        if (currentText) {
+          if (!currentItems) currentItems = [];
+          currentItems.push({ type: 'text', content: currentText });
+          currentText = '';
+        }
+      };
 
       for (const msg of langchainMessages) {
         const msgType = msg.id?.[2];
         const kwargs = msg.kwargs || {};
 
         if (msgType === 'HumanMessage') {
+          flushText();
+          if (currentItems) {
+            messages.push({ type: 'assistant-turn', items: currentItems });
+            currentItems = null;
+          }
           messages.push({ type: 'user', content: kwargs.content || '' });
         }
         else if (msgType === 'AIMessageChunk' || msgType === 'AIMessage') {
-          const toolCalls = kwargs.tool_calls || [];
-          for (const tc of toolCalls) {
-            const toolMsg = {
-              type: 'tool',
-              name: tc.name,
-              args: tc.args || {},
-              result: null
-            };
-            messages.push(toolMsg);
-            pendingToolCalls.set(tc.id, toolMsg);
+          if (!currentItems) currentItems = [];
+          
+          // Accumula testo (potrebbe arrivare in più chunk)
+          if (kwargs.content && typeof kwargs.content === 'string') {
+            currentText += kwargs.content;
           }
-          if (kwargs.content) {
-            messages.push({ type: 'assistant', content: kwargs.content });
+          
+          // Tool calls - prima flush del testo accumulato
+          const toolCalls = kwargs.tool_calls || [];
+          if (toolCalls.length > 0) {
+            flushText();
+            for (const tc of toolCalls) {
+              const toolEntry = { type: 'tool', id: tc.id, name: tc.name, args: tc.args || {}, result: null, isComplete: true };
+              currentItems.push(toolEntry);
+              toolMap.set(tc.id, toolEntry);
+            }
           }
         }
         else if (msgType === 'ToolMessage') {
-          const toolCallId = kwargs.tool_call_id;
-          const toolMsg = pendingToolCalls.get(toolCallId);
-          if (toolMsg) {
-            toolMsg.result = kwargs.content || '';
+          const toolEntry = toolMap.get(kwargs.tool_call_id);
+          if (toolEntry) {
+            toolEntry.result = kwargs.content || '';
           }
         }
       }
-
+      flushText();
+      if (currentItems) messages.push({ type: 'assistant-turn', items: currentItems });
       return messages;
     }
 
-    // ============================================
-    // COMPONENTI
-    // ============================================
-
-    const ToolExecution = defineComponent({
-      name: 'ToolExecution',
-      props: {
-        name: { type: String, required: true },
-        args: { type: Object, default: () => ({}) },
-        result: { type: String, default: null }
-      },
-      template: `
-        <div class="tool-execution">
-          <div class="tool-call">
-            🔧 <span class="tool-name">{{ name }}</span>
-            <span class="tool-args">({{ formatArgs }})</span>
-          </div>
-          <div v-if="result" class="tool-result">
-            ✅ {{ result }}
-          </div>
-        </div>
-      `,
-      computed: {
-        formatArgs() {
-          return JSON.stringify(this.args);
-        }
-      }
-    });
-
-    const ChatMessage = defineComponent({
-      name: 'ChatMessage',
-      props: {
-        type: { type: String, required: true },
-        content: { type: String, default: '' }
-      },
-      computed: {
-        renderedContent() {
-          if (this.type === 'assistant') {
-            return marked.parse(this.content || '');
-          }
-          return this.content;
-        }
-      },
-      template: `
-        <div class="msg" :class="type" v-if="type === 'assistant'" v-html="renderedContent"></div>
-        <div class="msg" :class="type" v-else>{{ content }}</div>
-      `
-    });
-
-    // Sidebar con lista thread
     const ThreadSidebar = defineComponent({
       name: 'ThreadSidebar',
       props: {
@@ -294,14 +304,9 @@
             <button @click="$emit('new')">+ Nuova conversazione</button>
           </div>
           <div class="thread-list">
-            <div
-              v-for="thread in threads"
-              :key="thread"
-              class="thread-item"
-              :class="{ active: thread === activeThreadId }"
-              @click="$emit('select', thread)"
-              :title="thread"
-            >
+            <div v-for="thread in threads" :key="thread"
+              class="thread-item" :class="{ active: thread === activeThreadId }"
+              @click="$emit('select', thread)" :title="thread">
               {{ thread }}
             </div>
           </div>
@@ -309,10 +314,179 @@
       `
     });
 
-    // Componente principale Chat
+    const AssistantTurn = defineComponent({
+      name: 'AssistantTurn',
+      props: {
+        items: { type: Array, default: () => [] },
+        isStreaming: { type: Boolean, default: false }
+      },
+      computed: {
+        hasContent() {
+          return this.items.length > 0;
+        }
+      },
+      methods: {
+        renderMarkdown(content) {
+          return marked.parse(content || '');
+        },
+        truncate(str, len) {
+          return str && str.length > len ? str.substring(0, len) + '...' : str;
+        },
+        getToolStatus(tool) {
+          if (tool.result !== null) return 'done';
+          if (!tool.isComplete) return 'generating';
+          return 'running';
+        },
+        parseChartFromResult(result) {
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.success && parsed.chart) {
+              return parsed.chart;
+            }
+          } catch {}
+          return null;
+        },
+        parseHtmlFromResult(result) {
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.type === 'html' && parsed.html) {
+              // Inietta script minimo per comunicare altezza al load
+              const resizeScript = `<script>window.onload=()=>parent.postMessage({h:document.body.scrollHeight},'*')<\/script>`;
+              let html = parsed.html;
+              if (html.includes('</body>')) {
+                html = html.replace('</body>', resizeScript + '</body>');
+              } else {
+                html = html + resizeScript;
+              }
+              return { ...parsed, html };
+            }
+          } catch {}
+          return null;
+        }
+      },
+      mounted() {
+        this.renderCharts();
+      },
+      updated() {
+        this.renderCharts();
+      },
+      setup() {
+        const chartInstances = new Map();
+        
+        const renderCharts = function() {
+          nextTick(() => {
+            const canvases = document.querySelectorAll('.chart-canvas:not([data-rendered])');
+            canvases.forEach(canvas => {
+              const chartData = canvas.dataset.chart;
+              if (!chartData) return;
+              
+              try {
+                const chart = JSON.parse(chartData);
+                canvas.setAttribute('data-rendered', 'true');
+                
+                const colors = [
+                  'rgba(74, 105, 189, 0.8)',
+                  'rgba(39, 174, 96, 0.8)',
+                  'rgba(243, 156, 18, 0.8)',
+                  'rgba(155, 89, 182, 0.8)',
+                  'rgba(231, 76, 60, 0.8)',
+                  'rgba(52, 152, 219, 0.8)',
+                ];
+                
+                const datasets = chart.data.datasets.map((ds, i) => ({
+                  ...ds,
+                  backgroundColor: chart.chartType === 'pie' 
+                    ? colors.slice(0, ds.data.length)
+                    : colors[i % colors.length],
+                  borderColor: chart.chartType === 'line' ? colors[i % colors.length] : undefined,
+                  borderWidth: chart.chartType === 'line' ? 2 : 1,
+                }));
+                
+                new Chart(canvas, {
+                  type: chart.chartType,
+                  data: { labels: chart.data.labels, datasets },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                      legend: { labels: { color: '#eee' } }
+                    },
+                    scales: chart.chartType !== 'pie' ? {
+                      x: { ticks: { color: '#aaa' }, grid: { color: '#333' } },
+                      y: { ticks: { color: '#aaa' }, grid: { color: '#333' } }
+                    } : undefined
+                  }
+                });
+              } catch (e) {
+                console.error('Chart render error:', e);
+              }
+            });
+          });
+        };
+        
+        return { renderCharts };
+      },
+      template: `
+        <div class="assistant-turn" v-if="hasContent || isStreaming">
+          <template v-for="(item, i) in items" :key="i">
+            <div v-if="item.type === 'text'" v-html="renderMarkdown(item.content)"></div>
+            
+            <div v-else-if="item.type === 'tool'" class="tool-block">
+              <div class="tool-header">
+                <span class="tool-icon">🔧</span>
+                <span class="tool-name">{{ item.name }}</span>
+              </div>
+              <div v-if="item.args" class="tool-details">
+                <div v-if="item.args.path" class="tool-path">📄 {{ item.args.path }}</div>
+                <div v-if="item.args.description" class="tool-description">{{ item.args.description }}</div>
+                <div v-if="item.args.command" class="tool-path">$ {{ item.args.command }}</div>
+                <div v-if="item.args.title && item.name === 'chart_display'" class="tool-description">📊 {{ item.args.title }}</div>
+              </div>
+              
+              <!-- Chart rendering -->
+              <template v-if="item.name === 'chart_display' && item.result">
+                <div v-if="parseChartFromResult(item.result)" class="chart-container">
+                  <div v-if="parseChartFromResult(item.result).title" class="chart-title">
+                    {{ parseChartFromResult(item.result).title }}
+                  </div>
+                  <canvas class="chart-canvas" :data-chart="JSON.stringify(parseChartFromResult(item.result))"></canvas>
+                </div>
+                <div v-else class="tool-status done">✅ {{ truncate(item.result, 150) }}</div>
+              </template>
+              
+              <!-- HTML iframe rendering -->
+              <template v-else-if="item.name === 'render_html' && item.result">
+                <div v-if="parseHtmlFromResult(item.result)" class="html-render-container">
+                  <div v-if="parseHtmlFromResult(item.result).title" class="html-render-title">
+                    {{ parseHtmlFromResult(item.result).title }}
+                  </div>
+                  <iframe 
+                    class="html-frame" 
+                    :srcdoc="parseHtmlFromResult(item.result).html"
+                    sandbox="allow-scripts"
+                  ></iframe>
+                </div>
+                <div v-else class="tool-status done">✅ {{ truncate(item.result, 150) }}</div>
+              </template>
+              
+              <template v-else>
+                <div class="tool-status" :class="getToolStatus(item)">
+                  <template v-if="item.result !== null">✅ {{ truncate(item.result, 150) }}</template>
+                  <template v-else-if="!item.isComplete">⏳ Generando...</template>
+                  <template v-else>⏳ In esecuzione...</template>
+                </div>
+              </template>
+            </div>
+          </template>
+          
+          <span v-if="isStreaming && !hasContent" class="loading-indicator"></span>
+        </div>
+      `
+    });
+
     const ChatApp = defineComponent({
       name: 'ChatApp',
-      components: { ChatMessage, ToolExecution, ThreadSidebar },
+      components: { ThreadSidebar, AssistantTurn },
       setup() {
         const messages = ref([]);
         const inputText = ref('');
@@ -321,6 +495,12 @@
         const inputRef = ref(null);
         const threadId = ref(null);
         const threads = ref([]);
+        
+        // Turno corrente: array di items in ordine cronologico
+        const currentTurn = reactive({ items: [], active: false });
+        
+        // Mappa per trovare tool per id
+        const toolsById = new Map();
 
         const scrollToBottom = async () => {
           await nextTick();
@@ -329,7 +509,6 @@
           }
         };
 
-        // Carica lista thread
         const loadThreads = async () => {
           try {
             const res = await fetch(`${API_URL}/threads`);
@@ -340,15 +519,12 @@
           }
         };
 
-        // Seleziona un thread esistente
         const selectThread = async (id) => {
           if (id === threadId.value) return;
-          
           isLoading.value = true;
           try {
             const res = await fetch(`${API_URL}/history/${id}`);
             const data = await res.json();
-            
             threadId.value = data.threadId;
             messages.value = parseHistoryToMessages(data.messages || []);
             scrollToBottom();
@@ -358,13 +534,48 @@
           isLoading.value = false;
         };
 
-        // Nuova conversazione
         const newConversation = () => {
           threadId.value = null;
           messages.value = [];
         };
 
-        // Invia messaggio
+        // Trova o crea l'ultimo item di testo
+        const getOrCreateTextItem = () => {
+          const lastItem = currentTurn.items[currentTurn.items.length - 1];
+          if (lastItem?.type === 'text') {
+            return lastItem;
+          }
+          const newItem = { type: 'text', content: '' };
+          currentTurn.items.push(newItem);
+          return newItem;
+        };
+
+        // Trova un tool esistente o lo crea nella posizione corretta
+        const getOrCreateTool = (id, name, args, isComplete) => {
+          let tool = toolsById.get(id);
+          if (tool) {
+            // Aggiorna tool esistente
+            if (args && Object.keys(args).length > 0) {
+              tool.args = { ...tool.args, ...args };
+            }
+            tool.isComplete = isComplete;
+            return tool;
+          }
+          
+          // Crea nuovo tool
+          tool = {
+            type: 'tool',
+            id,
+            name,
+            args: args || {},
+            result: null,
+            isComplete
+          };
+          currentTurn.items.push(tool);
+          toolsById.set(id, tool);
+          return tool;
+        };
+
         const sendMessage = async () => {
           const text = inputText.value.trim();
           if (!text || isLoading.value) return;
@@ -372,77 +583,91 @@
           messages.value.push({ type: 'user', content: text });
           inputText.value = '';
           isLoading.value = true;
+          
+          currentTurn.items = [];
+          currentTurn.active = true;
+          toolsById.clear();
+          
           scrollToBottom();
-
-          let currentAssistantIndex = null;
 
           try {
             const res = await fetch(`${API_URL}/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                message: text, 
-                threadId: threadId.value 
-              })
+              body: JSON.stringify({ message: text, threadId: threadId.value })
             });
 
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
+            let buffer = '';
 
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
 
-              const lines = decoder.decode(value).split('\n');
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || ''; // Mantieni l'ultima linea incompleta
+
               for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
-
-                const event = JSON.parse(line.slice(6));
+                
+                let event;
+                try {
+                  event = JSON.parse(line.slice(6));
+                } catch { continue; }
 
                 if (event.type === 'thread_id') {
                   const isNew = !threadId.value;
                   threadId.value = event.threadId;
-                  // Se è un nuovo thread, aggiorna la lista
-                  if (isNew) {
-                    threads.value = [event.threadId, ...threads.value];
-                  }
+                  if (isNew) threads.value = [event.threadId, ...threads.value];
                 }
                 else if (event.type === 'token') {
-                  if (currentAssistantIndex === null) {
-                    messages.value.push({ type: 'assistant', content: '' });
-                    currentAssistantIndex = messages.value.length - 1;
-                  }
-                  messages.value[currentAssistantIndex].content += event.content;
+                  const textItem = getOrCreateTextItem();
+                  textItem.content += event.content;
                   scrollToBottom();
                 }
                 else if (event.type === 'tool_call') {
-                  currentAssistantIndex = null;
-                  messages.value.push({
-                    type: 'tool',
-                    id: event.id,
-                    name: event.name,
-                    args: event.args,
-                    result: null
-                  });
+                  getOrCreateTool(event.id, event.name, event.args, event.isComplete);
                   scrollToBottom();
                 }
                 else if (event.type === 'tool_result') {
-                  const toolMsg = messages.value.find(m => m.type === 'tool' && m.id === event.id);
-                  if (toolMsg) {
-                    toolMsg.result = event.content;
-                    // event.name disponibile per uso futuro
-                  }
+                  const tool = toolsById.get(event.id);
+                  if (tool) tool.result = event.content;
                   scrollToBottom();
                 }
                 else if (event.type === 'error') {
-                  messages.value.push({ type: 'assistant', content: `❌ Errore: ${event.message}` });
+                  const textItem = getOrCreateTextItem();
+                  textItem.content += `\n\n❌ Errore: ${event.message}`;
                   scrollToBottom();
+                }
+                else if (event.type === 'done') {
+                  if (currentTurn.items.length > 0) {
+                    messages.value.push({
+                      type: 'assistant-turn',
+                      items: [...currentTurn.items]
+                    });
+                  }
+                  currentTurn.items = [];
+                  currentTurn.active = false;
+                  toolsById.clear();
                 }
               }
             }
           } catch (err) {
-            messages.value.push({ type: 'assistant', content: `❌ Errore di connessione: ${err.message}` });
+            const textItem = getOrCreateTextItem();
+            textItem.content += `\n\n❌ Errore di connessione: ${err.message}`;
           }
+
+          if (currentTurn.active && currentTurn.items.length > 0) {
+            messages.value.push({
+              type: 'assistant-turn',
+              items: [...currentTurn.items]
+            });
+          }
+          currentTurn.items = [];
+          currentTurn.active = false;
+          toolsById.clear();
 
           isLoading.value = false;
           scrollToBottom();
@@ -457,60 +682,41 @@
           }
         };
 
-        onMounted(() => {
+        onMounted(() => { 
           loadThreads();
+          window.addEventListener('message', e => {
+            if (e.data?.h) {
+              document.querySelectorAll('.html-frame').forEach(f => {
+                if (f.contentWindow === e.source) f.style.height = e.data.h + 20 + 'px';
+              });
+            }
+          });
         });
 
         return {
-          messages,
-          inputText,
-          isLoading,
-          chatContainer,
-          inputRef,
-          threadId,
-          threads,
-          sendMessage,
-          handleKeydown,
-          selectThread,
-          newConversation
+          messages, inputText, isLoading, chatContainer, inputRef,
+          threadId, threads, currentTurn,
+          sendMessage, handleKeydown, selectThread, newConversation
         };
       },
       template: `
-        <thread-sidebar
-          :threads="threads"
-          :active-thread-id="threadId"
-          @select="selectThread"
-          @new="newConversation"
-        />
+        <thread-sidebar :threads="threads" :active-thread-id="threadId"
+          @select="selectThread" @new="newConversation" />
         <div class="main">
           <div class="chat" ref="chatContainer">
-            <div v-if="messages.length === 0" class="empty-state">
+            <div v-if="messages.length === 0 && !currentTurn.active" class="empty-state">
               Inizia una nuova conversazione
             </div>
-            <template v-else v-for="(msg, index) in messages" :key="index">
-              <tool-execution
-                v-if="msg.type === 'tool'"
-                :name="msg.name"
-                :args="msg.args"
-                :result="msg.result"
-              />
-              <chat-message
-                v-else
-                :type="msg.type"
-                :content="msg.content"
-              />
+            <template v-for="(msg, index) in messages" :key="index">
+              <div v-if="msg.type === 'user'" class="msg user">{{ msg.content }}</div>
+              <assistant-turn v-else-if="msg.type === 'assistant-turn'" :items="msg.items" />
             </template>
+            <assistant-turn v-if="currentTurn.active" :items="currentTurn.items" :is-streaming="true" />
           </div>
           <div class="input-area">
-            <input
-              ref="inputRef"
-              v-model="inputText"
-              type="text"
-              placeholder="Scrivi un messaggio..."
-              :disabled="isLoading"
-              @keydown="handleKeydown"
-              autofocus
-            >
+            <input ref="inputRef" v-model="inputText" type="text"
+              placeholder="Scrivi un messaggio..." :disabled="isLoading"
+              @keydown="handleKeydown" autofocus>
             <button @click="sendMessage" :disabled="isLoading">Invia</button>
           </div>
         </div>
