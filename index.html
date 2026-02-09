@@ -149,6 +149,33 @@
       overflow: hidden;
     }
     
+    /* File Downloads */
+    .files-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .file-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: #3d5a80;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 0.85em;
+      transition: background 0.2s;
+    }
+    .file-download:hover {
+      background: #4a69bd;
+    }
+    .file-download svg {
+      width: 16px;
+      height: 16px;
+    }
+    
     /* Markdown */
     .assistant-turn p { margin: 0; }
     .assistant-turn p + p { margin-top: 0.5em; }
@@ -320,6 +347,9 @@
         items: { type: Array, default: () => [] },
         isStreaming: { type: Boolean, default: false }
       },
+      data() {
+        return { API_URL };
+      },
       computed: {
         hasContent() {
           return this.items.length > 0;
@@ -359,6 +389,15 @@
                 html = html + resizeScript;
               }
               return { ...parsed, html };
+            }
+          } catch {}
+          return null;
+        },
+        parseFilesFromResult(result) {
+          try {
+            const parsed = JSON.parse(result);
+            if (parsed.success && parsed.files && Array.isArray(parsed.files)) {
+              return parsed.files;
             }
           } catch {}
           return null;
@@ -465,6 +504,22 @@
                     :srcdoc="parseHtmlFromResult(item.result).html"
                     sandbox="allow-scripts"
                   ></iframe>
+                </div>
+                <div v-else class="tool-status done">✅ {{ truncate(item.result, 150) }}</div>
+              </template>
+              
+              <!-- File downloads rendering -->
+              <template v-else-if="item.name === 'present_files' && item.result">
+                <div v-if="parseFilesFromResult(item.result)" class="files-container">
+                  <a v-for="file in parseFilesFromResult(item.result)" :key="file.filename"
+                     class="file-download" :href="API_URL + file.downloadUrl" :download="file.filename">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    {{ file.filename }}
+                  </a>
                 </div>
                 <div v-else class="tool-status done">✅ {{ truncate(item.result, 150) }}</div>
               </template>

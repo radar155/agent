@@ -10,15 +10,18 @@ export interface FileResult {
 
 export class FileService {
   private workspacePath: string;
+  private outputsPath: string;
   private maxFileSize: number;
   private encoding: BufferEncoding;
 
   constructor(options?: {
     workspacePath?: string;
+    outputsPath?: string;
     maxFileSize?: number;
     encoding?: BufferEncoding;
   }) {
     this.workspacePath = options?.workspacePath ?? config.fileSystem.workspacePath;
+    this.outputsPath = options?.outputsPath ?? config.fileSystem.outputsPath;
     this.maxFileSize = options?.maxFileSize ?? config.fileSystem.maxFileSize;
     this.encoding = options?.encoding ?? config.fileSystem.encoding;
   }
@@ -38,6 +41,12 @@ export class FileService {
   ensureWorkspace(): void {
     if (!fs.existsSync(this.workspacePath)) {
       fs.mkdirSync(this.workspacePath, { recursive: true });
+    }
+  }
+
+  ensureOutputs(): void {
+    if (!fs.existsSync(this.outputsPath)) {
+      fs.mkdirSync(this.outputsPath, { recursive: true });
     }
   }
 
@@ -106,7 +115,34 @@ export class FileService {
     return this.createFile(filePath, readResult.output.replace(oldStr, newStr));
   }
 
+  copyToOutputs(filePath: string): FileResult {
+    try {
+      const sourcePath = this.validatePath(filePath);
+      if (!fs.existsSync(sourcePath)) {
+        return { success: false, output: "", error: `File not found: ${filePath}` };
+      }
+      const stats = fs.statSync(sourcePath);
+      if (stats.isDirectory()) {
+        return { success: false, output: "", error: `Cannot copy directory: ${filePath}` };
+      }
+      
+      this.ensureOutputs();
+      const filename = path.basename(filePath);
+      const destPath = path.join(this.outputsPath, filename);
+      fs.copyFileSync(sourcePath, destPath);
+      
+      // Ritorna URL relativo per il download
+      return { success: true, output: `/outputs/${filename}` };
+    } catch (error) {
+      return { success: false, output: "", error: error instanceof Error ? error.message : "Unknown error" };
+    }
+  }
+
   getWorkspacePath(): string {
     return this.workspacePath;
+  }
+
+  getOutputsPath(): string {
+    return this.outputsPath;
   }
 }

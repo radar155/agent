@@ -2,15 +2,20 @@ import "dotenv/config";
 import express, { Request, Response } from "express";
 import cors from "cors";
 import crypto from "crypto";
+import path from "path";
 import { agent } from "./agent";
 import { parseAgentStream } from "./streamParser/index.js";
 import { listThreads } from "./memory/listThreads";
+import { config } from "./services/config.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = config.server.port;
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from outputs directory
+app.use("/outputs", express.static(path.resolve(config.fileSystem.outputsPath)));
 
 // SSE Event Types
 type SSEEvent =
@@ -109,5 +114,6 @@ app.listen(PORT, () => {
   console.log(`  POST /chat           - Send message (SSE streaming)`);
   console.log(`  GET  /history/:id    - Get full conversation history`);
   console.log(`  GET  /threads        - List all saved threads`);
+  console.log(`  GET  /outputs/*      - Download files`);
   console.log(`  GET  /health         - Health check`);
 });

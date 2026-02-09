@@ -19,7 +19,11 @@ export const config = {
   },
   fileSystem: {
     workspacePath: process.env.WORKSPACE_PATH || "./workspace",
+    outputsPath: process.env.OUTPUTS_PATH || "./outputs",
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || "104857600", 10),
     encoding: "utf-8" as BufferEncoding,
+  },
+  server: {
+    port: parseInt(process.env.PORT || "3000", 10),
   },
 };
