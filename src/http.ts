@@ -3,10 +3,14 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import crypto from "crypto";
 import path from "path";
+import { bootstrap } from "./bootstrap.js";
 import { agent } from "./agent";
 import { parseAgentStream } from "./streamParser/index.js";
 import { listThreads } from "./memory/listThreads";
 import { config } from "./services/config.js";
+
+// Initialize sandbox (Docker container if needed) before anything else
+await bootstrap();
 
 const app = express();
 const PORT = config.server.port;

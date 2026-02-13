@@ -1,18 +1,14 @@
-import { spawn } from "child_process";
 import * as fs from "fs";
 import { config } from "./config.js";
+import { createExecutor, CommandExecutor, CommandResult } from "./executors/index.js";
 
-export interface BashResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  timedOut?: boolean;
-}
+export type { CommandResult };
 
 export class BashSandbox {
   private workingDirectory: string;
   private timeout: number;
   private blacklist: string[];
+  private executor: CommandExecutor;
 
   constructor(options?: {
     workingDirectory?: string;
@@ -22,9 +18,12 @@ export class BashSandbox {
     this.workingDirectory = options?.workingDirectory ?? config.sandbox.workingDirectory;
     this.timeout = options?.timeout ?? config.sandbox.timeout;
     this.blacklist = options?.blacklist ?? config.sandbox.blacklist;
+    // Singleton executor — already initialized by bootstrap()
+    this.executor = createExecutor();
   }
 
   isBlacklisted(command: string): boolean {
+    if (this.blacklist.length === 0) return false;
     const normalized = command.toLowerCase().replace(/\s+/g, " ").trim();
     return this.blacklist.some((pattern) =>
       normalized.includes(pattern.toLowerCase().replace(/\s+/g, " ").trim())
@@ -37,7 +36,7 @@ export class BashSandbox {
     }
   }
 
-  async execute(command: string): Promise<BashResult> {
+  async execute(command: string): Promise<CommandResult> {
     if (this.isBlacklisted(command)) {
       return {
         stdout: "",
@@ -49,63 +48,16 @@ export class BashSandbox {
 
     this.ensureWorkingDirectory();
 
-    return new Promise((resolve) => {
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
-      let resolved = false;
-
-      const isWindows = process.platform === "win32";
-      const shell = isWindows ? "cmd.exe" : "/bin/bash";
-      const shellArgs = isWindows ? ["/c", command] : ["-c", command];
-
-      const child = spawn(shell, shellArgs, {
-        cwd: this.workingDirectory,
-        env: { ...process.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      const timeoutId = setTimeout(() => {
-        if (!resolved) {
-          timedOut = true;
-          child.kill("SIGKILL");
-        }
-      }, this.timeout);
-
-      child.stdout.on("data", (data) => (stdout += data.toString()));
-      child.stderr.on("data", (data) => (stderr += data.toString()));
-
-      child.on("close", (code) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          resolve({
-            stdout,
-            stderr: timedOut
-              ? stderr + `\nError: Command timed out after ${this.timeout / 1000} seconds`
-              : stderr,
-            exitCode: timedOut ? 124 : (code ?? 1),
-            timedOut,
-          });
-        }
-      });
-
-      child.on("error", (error) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          resolve({
-            stdout,
-            stderr: `Error: ${error.message}`,
-            exitCode: 1,
-            timedOut: false,
-          });
-        }
-      });
-    });
+    return this.executor.execute(command, this.workingDirectory, this.timeout);
   }
 
   getWorkingDirectory(): string {
     return this.workingDirectory;
+  }
+
+  async dispose(): Promise<void> {
+    if (this.executor.dispose) {
+      await this.executor.dispose();
+    }
   }
 }

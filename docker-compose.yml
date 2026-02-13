@@ -1,0 +1,12 @@
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    container_name: agent-sandbox
+    volumes:
+      - ./workspace:/workspace
+    working_dir: /workspace
+    restart: unless-stopped
+    # Network access enabled for npm install, pip install, etc.
+    network_mode: bridge
