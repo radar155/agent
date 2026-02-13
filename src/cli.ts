@@ -31,11 +31,16 @@ async function chat(userInput: string) {
       }
       process.stdout.write(content);
     },
-    onToolCall: (name, args) => {
-      console.log(`[Tool Call] ${name}(${JSON.stringify(args)})`);
+    onToolCall: (id, name, args, isComplete) => {
+      if (isComplete) {
+        console.log(`[Tool Call] ${name}(${JSON.stringify(args)})`);
+      }
     },
-    onToolResult: (content) => {
-      console.log(`[Tool Result] ${content}`);
+    onToolResult: (id, name, content) => {
+      console.log(`[Tool Result] ${name}: ${content}`);
+    },
+    onThinking: (content) => {
+      process.stdout.write(`[Thinking] ${content}`);
     },
     onDone: () => {
       if (!isFirstToken) console.log();

@@ -1,13 +1,18 @@
 import { config } from "./services/config.js";
-import { createExecutor } from "./services/executors/index.js";
 
 /**
  * Initialize all required services before the application starts.
- * Throws and exits if critical services (e.g. Docker container) fail to start.
+ * Only starts Docker container when sandbox tools are enabled and mode is "docker".
  */
 export async function bootstrap(): Promise<void> {
+  if (!config.tools.sandbox) {
+    console.log("🔧 Sandbox tools disabled, skipping sandbox initialization");
+    return;
+  }
+
   if (config.sandbox.mode === "docker") {
     console.log("🐳 Sandbox mode: docker");
+    const { createExecutor } = await import("./services/executors/index.js");
     const executor = createExecutor();
     try {
       await executor.init!();

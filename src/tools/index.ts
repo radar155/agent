@@ -1,14 +1,29 @@
-import { sandboxTools } from "./sandbox/index.js";
-import { chartTool } from "./chartTool.js";
-import { htmlRenderTool } from "./htmlRenderTool.js";
-import { webFetchTool } from "./webFetchTool.js";
-import { presentFilesTool } from "./presentFilesTool.js";
+import { config } from "../services/config.js";
+import type { StructuredToolInterface } from "@langchain/core/tools";
 
-export const tools = [...sandboxTools, chartTool, htmlRenderTool, webFetchTool, presentFilesTool];
+const tools: StructuredToolInterface[] = [];
 
-// Re-export per accesso individuale
-export { sandboxTools } from "./sandbox/index.js";
-export { chartTool } from "./chartTool.js";
-export { htmlRenderTool } from "./htmlRenderTool.js";
-export { webFetchTool } from "./webFetchTool.js";
-export { presentFilesTool } from "./presentFilesTool.js";
+// Sandbox tools: bash, view, create_file, str_replace, present_files
+if (config.tools.sandbox) {
+  const { bashTool } = await import("./sandbox/bashTool.js");
+  const { viewTool } = await import("./sandbox/viewTool.js");
+  const { createFileTool } = await import("./sandbox/createFileTool.js");
+  const { strReplaceTool } = await import("./sandbox/strReplaceTool.js");
+  const { presentFilesTool } = await import("./presentFilesTool.js");
+  tools.push(bashTool, viewTool, createFileTool, strReplaceTool, presentFilesTool);
+}
+
+// Web tools: web_fetch
+if (config.tools.web) {
+  const { webFetchTool } = await import("./webFetchTool.js");
+  tools.push(webFetchTool);
+}
+
+// Output tools: chart, html_render
+if (config.tools.output) {
+  const { chartTool } = await import("./chartTool.js");
+  const { htmlRenderTool } = await import("./htmlRenderTool.js");
+  tools.push(chartTool, htmlRenderTool);
+}
+
+export { tools };

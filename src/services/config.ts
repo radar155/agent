@@ -3,15 +3,36 @@ import * as path from "path";
 
 dotenv.config();
 
-const sandboxMode = (process.env.SANDBOX_MODE || "local") as "local" | "docker";
+const envBool = (key: string, defaultValue = true): boolean => {
+  const val = process.env[key];
+  if (val === undefined) return defaultValue;
+  return val !== "false" && val !== "0";
+};
+
+// Tool groups
+const toolsSandbox = envBool("TOOLS_SANDBOX");
+const toolsWeb = envBool("TOOLS_WEB");
+const toolsOutput = envBool("TOOLS_OUTPUT");
+
+// Sandbox config is only relevant when sandbox tools are enabled
+const sandboxMode = toolsSandbox
+  ? (process.env.SANDBOX_MODE || "local") as "local" | "docker"
+  : "local";
 
 export const config = {
+  tools: {
+    sandbox: toolsSandbox,
+    web: toolsWeb,
+    output: toolsOutput,
+  },
+
+  // Sandbox & filesystem — only used when tools.sandbox is true
   sandbox: {
     mode: sandboxMode,
     workingDirectory: process.env.SANDBOX_WORKING_DIR || "./workspace",
     timeout: parseInt(process.env.SANDBOX_TIMEOUT || "30000", 10),
     blacklist: sandboxMode === "docker"
-      ? [] // In Docker l'ambiente è isolato, nessuna blacklist necessaria
+      ? []
       : [
           "rm -rf /",
           "rm -rf /*",
@@ -35,6 +56,7 @@ export const config = {
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || "104857600", 10),
     encoding: "utf-8" as BufferEncoding,
   },
+
   server: {
     port: parseInt(process.env.PORT || "3000", 10),
   },
