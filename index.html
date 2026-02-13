@@ -449,7 +449,8 @@
       name: 'ThreadSidebar',
       props: {
         threads: { type: Array, default: () => [] },
-        activeThreadId: { type: String, default: null }
+        activeThreadId: { type: String, default: null },
+        runningThreads: { type: Object, default: () => new Set() }
       },
       emits: ['select', 'new'],
       template: `
@@ -461,7 +462,8 @@
             <div v-for="thread in threads" :key="thread"
               class="thread-item" :class="{ active: thread === activeThreadId }"
               @click="$emit('select', thread)" :title="thread">
-              {{ thread }}
+              <span v-if="runningThreads.has(thread)" class="loading-indicator" style="margin-right:8px;vertical-align:middle;background:#f39c12;"></span>
+              {{ thread.substring(0, 28) }}
             </div>
           </div>
         </div>
@@ -677,19 +679,64 @@
       name: 'ChatApp',
       components: { ThreadSidebar, AssistantTurn },
       setup() {
-        const messages = ref([]);
         const inputText = ref('');
-        const isLoading = ref(false);
         const chatContainer = ref(null);
         const inputRef = ref(null);
-        const threadId = ref(null);
+        const activeThreadId = ref(null);
         const threads = ref([]);
-        
-        // Turno corrente: array di items in ordine cronologico
-        const currentTurn = reactive({ items: [], active: false });
-        
-        // Mappa per trovare tool per id
-        const toolsById = new Map();
+
+        // === Per-thread state ===
+        // Each thread state uses reactive() so Vue tracks mutations
+        const threadStates = new Map();
+
+        // Reactive set of threadIds that are currently streaming
+        const runningThreads = reactive(new Set());
+
+        function getThreadState(id) {
+          if (!threadStates.has(id)) {
+            threadStates.set(id, reactive({
+              messages: [],
+              currentTurn: { items: [], active: false },
+              toolsById: new Map(),
+              reader: null,
+              pollTimer: null,
+            }));
+          }
+          return threadStates.get(id);
+        }
+
+        // Reactive proxies for the ACTIVE thread — these drive the template
+        const displayMessages = ref([]);
+        const displayTurn = reactive({ items: [], active: false });
+
+        // Version counter — bumped on every mutation to force Vue to re-render
+        const displayVersion = ref(0);
+
+        function syncDisplay() {
+          if (!activeThreadId.value) {
+            displayMessages.value = [];
+            displayTurn.items = [];
+            displayTurn.active = false;
+            return;
+          }
+          const ts = threadStates.get(activeThreadId.value);
+          if (!ts) {
+            displayMessages.value = [];
+            displayTurn.items = [];
+            displayTurn.active = false;
+            return;
+          }
+          // Shallow-copy to trigger Vue reactivity
+          displayMessages.value = [...ts.messages];
+          displayTurn.items = [...ts.currentTurn.items];
+          displayTurn.active = ts.currentTurn.active;
+        }
+
+        const isActiveThreadLoading = computed(() => {
+          // Touch displayVersion to make this recompute when we bump it
+          displayVersion.value;
+          return activeThreadId.value && runningThreads.has(activeThreadId.value);
+        });
 
         const scrollToBottom = async () => {
           await nextTick();
@@ -702,99 +749,144 @@
           try {
             const res = await fetch(`${API_URL}/threads`);
             const data = await res.json();
-            threads.value = data.threads || [];
+            const threadList = data.threads || [];
+            threads.value = threadList.map(t => t.id || t);
+            // Populate running threads from server state
+            for (const t of threadList) {
+              if (t.running) {
+                runningThreads.add(t.id);
+              }
+            }
           } catch (err) {
             console.error('Errore caricamento threads:', err);
           }
         };
 
+        // === History polling (for post-refresh running threads) ===
+        function startPolling(threadId) {
+          const ts = getThreadState(threadId);
+          if (ts.pollTimer) return;
+          ts.pollTimer = setInterval(async () => {
+            try {
+              const res = await fetch(`${API_URL}/history/${threadId}`);
+              const data = await res.json();
+              ts.messages = parseHistoryToMessages(data.messages || []);
+              if (!data.running) {
+                // Stream finished server-side
+                runningThreads.delete(threadId);
+                ts.currentTurn.items = [];
+                ts.currentTurn.active = false;
+                clearInterval(ts.pollTimer);
+                ts.pollTimer = null;
+              }
+              if (threadId === activeThreadId.value) syncDisplay();
+            } catch (err) {
+              console.error('Polling error:', err);
+            }
+          }, 3000);
+        }
+
+        function stopPolling(threadId) {
+          const ts = threadStates.get(threadId);
+          if (ts?.pollTimer) {
+            clearInterval(ts.pollTimer);
+            ts.pollTimer = null;
+          }
+        }
+
+        // === Thread selection ===
         const selectThread = async (id) => {
-          if (id === threadId.value) return;
-          isLoading.value = true;
+          if (id === activeThreadId.value) return;
+          activeThreadId.value = id;
+
+          const ts = getThreadState(id);
+
+          // If this thread already has messages (was loaded before or is streaming), just show them
+          if (ts.messages.length > 0 || ts.currentTurn.active) {
+            syncDisplay();
+            scrollToBottom();
+            return;
+          }
+
+          // Otherwise load from history
           try {
             const res = await fetch(`${API_URL}/history/${id}`);
             const data = await res.json();
-            threadId.value = data.threadId;
-            messages.value = parseHistoryToMessages(data.messages || []);
+            ts.messages = parseHistoryToMessages(data.messages || []);
+
+            // If server says this thread is still running (post-refresh), start polling
+            if (data.running) {
+              runningThreads.add(id);
+              ts.currentTurn.active = true;
+              ts.currentTurn.items = [];
+              startPolling(id);
+            }
+
+            syncDisplay();
             scrollToBottom();
           } catch (err) {
             console.error('Errore caricamento history:', err);
           }
-          isLoading.value = false;
         };
 
         const newConversation = () => {
-          threadId.value = null;
-          messages.value = [];
+          activeThreadId.value = null;
+          syncDisplay();
         };
 
-        // Trova o crea l'ultimo item di testo
-        const getOrCreateTextItem = () => {
-          const lastItem = currentTurn.items[currentTurn.items.length - 1];
-          if (lastItem?.type === 'text') {
-            return lastItem;
-          }
-          const newItem = { type: 'text', content: '' };
-          currentTurn.items.push(newItem);
+        // === SSE stream helpers (per-thread) ===
+        function getOrCreateTextItem(ts) {
+          const lastItem = ts.currentTurn.items[ts.currentTurn.items.length - 1];
+          if (lastItem?.type === 'text') return lastItem;
+          const newItem = reactive({ type: 'text', content: '' });
+          ts.currentTurn.items.push(newItem);
           return newItem;
-        };
+        }
 
-        // Trova o crea l'ultimo item di thinking
-        const getOrCreateThinkingItem = () => {
-          const lastItem = currentTurn.items[currentTurn.items.length - 1];
-          if (lastItem?.type === 'thinking') {
-            return lastItem;
-          }
-          const newItem = { type: 'thinking', content: '' };
-          currentTurn.items.push(newItem);
+        function getOrCreateThinkingItem(ts) {
+          const lastItem = ts.currentTurn.items[ts.currentTurn.items.length - 1];
+          if (lastItem?.type === 'thinking') return lastItem;
+          const newItem = reactive({ type: 'thinking', content: '' });
+          ts.currentTurn.items.push(newItem);
           return newItem;
-        };
+        }
 
-        // Trova un tool esistente o lo crea nella posizione corretta
-        const getOrCreateTool = (id, name, args, isComplete) => {
-          let tool = toolsById.get(id);
+        function getOrCreateTool(ts, id, name, args, isComplete) {
+          let tool = ts.toolsById.get(id);
           if (tool) {
-            // Aggiorna tool esistente — muta in-place per reattività Vue
-            if (args && Object.keys(args).length > 0) {
-              Object.assign(tool.args, args);
-            }
+            if (args && Object.keys(args).length > 0) Object.assign(tool.args, args);
             tool.isComplete = isComplete;
             return tool;
           }
-          
-          // Crea nuovo tool
-          tool = reactive({
-            type: 'tool',
-            id,
-            name,
-            args: args || {},
-            result: null,
-            isComplete
-          });
-          currentTurn.items.push(tool);
-          toolsById.set(id, tool);
+          tool = reactive({ type: 'tool', id, name, args: args || {}, result: null, isComplete });
+          ts.currentTurn.items.push(tool);
+          ts.toolsById.set(id, tool);
           return tool;
-        };
+        }
 
+        // === Send message ===
         const sendMessage = async () => {
           const text = inputText.value.trim();
-          if (!text || isLoading.value) return;
+          if (!text || isActiveThreadLoading.value) return;
 
-          messages.value.push({ type: 'user', content: text });
+          const currentThreadId = activeThreadId.value;
+          // If no thread yet, we'll get one from the server
+          const sendThreadId = currentThreadId;
+
+          // Prepare thread state
+          let ts;
+          let streamThreadId = currentThreadId;
+          if (currentThreadId) {
+            ts = getThreadState(currentThreadId);
+          }
+
           inputText.value = '';
-          isLoading.value = true;
-          
-          currentTurn.items = [];
-          currentTurn.active = true;
-          toolsById.clear();
-          
-          scrollToBottom();
 
           try {
             const res = await fetch(`${API_URL}/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message: text, threadId: threadId.value })
+              body: JSON.stringify({ message: text, threadId: sendThreadId })
             });
 
             const reader = res.body.getReader();
@@ -807,74 +899,101 @@
 
               buffer += decoder.decode(value, { stream: true });
               const lines = buffer.split('\n');
-              buffer = lines.pop() || ''; // Mantieni l'ultima linea incompleta
+              buffer = lines.pop() || '';
 
               for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
-                
-                let event;
-                try {
-                  event = JSON.parse(line.slice(6));
-                } catch { continue; }
 
+                let event;
+                try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+                // Handle thread_id — may create the thread state
                 if (event.type === 'thread_id') {
-                  const isNew = !threadId.value;
-                  threadId.value = event.threadId;
-                  if (isNew) threads.value = [event.threadId, ...threads.value];
+                  streamThreadId = event.threadId;
+                  ts = getThreadState(streamThreadId);
+                  ts.reader = reader;
+
+                  // Add user message to this thread's state
+                  ts.messages.push({ type: 'user', content: text });
+                  ts.currentTurn.items = [];
+                  ts.currentTurn.active = true;
+                  ts.toolsById.clear();
+                  runningThreads.add(streamThreadId);
+
+                  // If this is a new thread, update sidebar and set active
+                  if (!sendThreadId) {
+                    activeThreadId.value = streamThreadId;
+                    threads.value = [streamThreadId, ...threads.value];
+                  }
+                  if (streamThreadId === activeThreadId.value) syncDisplay();
+                  continue;
                 }
-                else if (event.type === 'token') {
-                  const textItem = getOrCreateTextItem();
+
+                if (!ts) continue; // shouldn't happen, but guard
+
+                if (event.type === 'token') {
+                  const textItem = getOrCreateTextItem(ts);
                   textItem.content += event.content;
-                  scrollToBottom();
                 }
                 else if (event.type === 'thinking') {
-                  const thinkingItem = getOrCreateThinkingItem();
+                  const thinkingItem = getOrCreateThinkingItem(ts);
                   thinkingItem.content += event.content;
-                  scrollToBottom();
                 }
                 else if (event.type === 'tool_call') {
-                  getOrCreateTool(event.id, event.name, event.args, event.isComplete);
-                  scrollToBottom();
+                  getOrCreateTool(ts, event.id, event.name, event.args, event.isComplete);
                 }
                 else if (event.type === 'tool_result') {
-                  const tool = toolsById.get(event.id);
+                  const tool = ts.toolsById.get(event.id);
                   if (tool) tool.result = event.content;
-                  scrollToBottom();
                 }
                 else if (event.type === 'error') {
-                  const textItem = getOrCreateTextItem();
+                  const textItem = getOrCreateTextItem(ts);
                   textItem.content += `\n\n❌ Errore: ${event.message}`;
-                  scrollToBottom();
                 }
                 else if (event.type === 'done') {
-                  if (currentTurn.items.length > 0) {
-                    messages.value.push({
+                  if (ts.currentTurn.items.length > 0) {
+                    ts.messages.push({
                       type: 'assistant-turn',
-                      items: [...currentTurn.items]
+                      items: [...ts.currentTurn.items]
                     });
                   }
-                  currentTurn.items = [];
-                  currentTurn.active = false;
-                  toolsById.clear();
+                  ts.currentTurn.items = [];
+                  ts.currentTurn.active = false;
+                  ts.toolsById.clear();
+                  ts.reader = null;
+                  runningThreads.delete(streamThreadId);
+                }
+
+                // Sync display if this is the active thread
+                if (streamThreadId === activeThreadId.value) {
+                  syncDisplay();
+                  scrollToBottom();
                 }
               }
             }
           } catch (err) {
-            const textItem = getOrCreateTextItem();
-            textItem.content += `\n\n❌ Errore di connessione: ${err.message}`;
+            if (ts) {
+              const textItem = getOrCreateTextItem(ts);
+              textItem.content += `\n\n❌ Errore di connessione: ${err.message}`;
+            }
           }
 
-          if (currentTurn.active && currentTurn.items.length > 0) {
-            messages.value.push({
-              type: 'assistant-turn',
-              items: [...currentTurn.items]
-            });
+          // Cleanup in case stream ended without 'done' event
+          if (ts && ts.currentTurn.active) {
+            if (ts.currentTurn.items.length > 0) {
+              ts.messages.push({
+                type: 'assistant-turn',
+                items: [...ts.currentTurn.items]
+              });
+            }
+            ts.currentTurn.items = [];
+            ts.currentTurn.active = false;
+            ts.toolsById.clear();
+            ts.reader = null;
+            if (streamThreadId) runningThreads.delete(streamThreadId);
           }
-          currentTurn.items = [];
-          currentTurn.active = false;
-          toolsById.clear();
 
-          isLoading.value = false;
+          if (activeThreadId.value) syncDisplay();
           scrollToBottom();
           await nextTick();
           inputRef.value?.focus();
@@ -887,7 +1006,7 @@
           }
         };
 
-        onMounted(() => { 
+        onMounted(() => {
           loadThreads();
           window.addEventListener('message', e => {
             if (e.data?.h) {
@@ -899,30 +1018,31 @@
         });
 
         return {
-          messages, inputText, isLoading, chatContainer, inputRef,
-          threadId, threads, currentTurn,
+          displayMessages, inputText, isActiveThreadLoading, chatContainer, inputRef,
+          activeThreadId, threads, displayTurn, runningThreads,
           sendMessage, handleKeydown, selectThread, newConversation
         };
       },
       template: `
-        <thread-sidebar :threads="threads" :active-thread-id="threadId"
+        <thread-sidebar :threads="threads" :active-thread-id="activeThreadId"
+          :running-threads="runningThreads"
           @select="selectThread" @new="newConversation" />
         <div class="main">
           <div class="chat" ref="chatContainer">
-            <div v-if="messages.length === 0 && !currentTurn.active" class="empty-state">
+            <div v-if="displayMessages.length === 0 && !displayTurn.active" class="empty-state">
               Inizia una nuova conversazione
             </div>
-            <template v-for="(msg, index) in messages" :key="index">
+            <template v-for="(msg, index) in displayMessages" :key="index">
               <div v-if="msg.type === 'user'" class="msg user">{{ msg.content }}</div>
               <assistant-turn v-else-if="msg.type === 'assistant-turn'" :items="msg.items" />
             </template>
-            <assistant-turn v-if="currentTurn.active" :items="currentTurn.items" :is-streaming="true" />
+            <assistant-turn v-if="displayTurn.active" :items="displayTurn.items" :is-streaming="true" />
           </div>
           <div class="input-area">
             <input ref="inputRef" v-model="inputText" type="text"
-              placeholder="Scrivi un messaggio..." :disabled="isLoading"
+              placeholder="Scrivi un messaggio..." :disabled="isActiveThreadLoading"
               @keydown="handleKeydown" autofocus>
-            <button @click="sendMessage" :disabled="isLoading">Invia</button>
+            <button @click="sendMessage" :disabled="isActiveThreadLoading">Invia</button>
           </div>
         </div>
       `

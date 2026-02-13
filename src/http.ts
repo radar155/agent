@@ -21,6 +21,9 @@ app.use(express.json());
 // Serve static files from outputs directory
 app.use("/outputs", express.static(path.resolve(config.fileSystem.outputsPath)));
 
+// Track active streams per thread
+const activeStreams = new Set<string>();
+
 // SSE Event Types
 type SSEEvent =
   | { type: "token"; content: string }
@@ -58,6 +61,8 @@ app.post("/chat", async (req: Request, res: Response) => {
   // Invia subito il threadId al client
   sendSSE(res, { type: "thread_id", threadId: actualThreadId });
 
+  activeStreams.add(actualThreadId);
+
   const threadConfig = { configurable: { thread_id: actualThreadId } };
 
   const stream = await agent.stream(
@@ -74,6 +79,7 @@ app.post("/chat", async (req: Request, res: Response) => {
     onError: (error) => sendSSE(res, { type: "error", message: error.message }),
   });
 
+  activeStreams.delete(actualThreadId);
   res.end();
 });
 
@@ -87,6 +93,7 @@ app.get("/history/:threadId", async (req: Request, res: Response) => {
     res.json({
       threadId,
       messages: state?.values?.messages ?? [],
+      running: activeStreams.has(threadId),
     });
   } catch (error) {
     const errorMessage =
@@ -98,7 +105,11 @@ app.get("/history/:threadId", async (req: Request, res: Response) => {
 // GET /threads - Lista tutti i thread salvati
 app.get("/threads", async (_req: Request, res: Response) => {
   try {
-    const threads = await listThreads();
+    const threadIds = await listThreads();
+    const threads = threadIds.map((id) => ({
+      id,
+      running: activeStreams.has(id),
+    }));
     res.json({ threads });
   } catch (error) {
     const errorMessage =
