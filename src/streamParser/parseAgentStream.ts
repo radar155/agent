@@ -14,7 +14,7 @@ interface ProviderConfig {
 }
 
 const PROVIDER_CONFIG: Record<ModelProvider, ProviderConfig> = {
-  anthropic: { thinkingType: "thinking", thinkingField: "thinking" },
+  anthropic: { thinkingType: "reasoning", thinkingField: "reasoning" },
   openai: { thinkingType: "reasoning", thinkingField: "reasoning" },
 };
 
@@ -133,26 +133,9 @@ function parseUpdatesChunk(
       for (const msg of messages) {
         const kwargs = msg?.kwargs || msg;
 
-        // OpenAI reasoning in additional_kwargs (o1/o3 summary format)
-        const reasoningSummary = kwargs.additional_kwargs?.reasoning?.summary;
-        if (Array.isArray(reasoningSummary)) {
-          const text = reasoningSummary
-            .filter((item: any) => item.type === "summary_text")
-            .map((item: any) => item.text)
-            .join("");
-          if (text.trim()) {
-            callbacks.onThinking?.(text);
-          }
-        }
-
-        // Thinking/reasoning nei content blocks dei messaggi completi
-        if (Array.isArray(kwargs.content)) {
-          for (const block of kwargs.content) {
-            if (block?.type === cfg.thinkingType && block[cfg.thinkingField]) {
-              callbacks.onThinking?.(block[cfg.thinkingField]);
-            }
-          }
-        }
+        // Thinking/reasoning is only handled in the messages channel (real-time).
+        // The updates channel contains the full message after completion,
+        // so emitting thinking here would show it after the response text.
 
         // Tool calls completi
         const toolCalls = kwargs.tool_calls;

@@ -62,7 +62,7 @@ app.post("/chat", async (req: Request, res: Response) => {
 
   const stream = await agent.stream(
     { messages: [{ role: "user", content: message }] },
-    { ...threadConfig, streamMode: ["messages", "updates"] }
+    { ...threadConfig, streamMode: ["messages", "updates"], recursionLimit: 100 }
   );
 
   await parseAgentStream(stream as AsyncIterable<[string, unknown]>, {

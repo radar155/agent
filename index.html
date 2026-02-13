@@ -110,6 +110,26 @@
     .tool-status.generating { color: #9b59b6; font-style: italic; }
     .tool-status.running { color: #888; font-style: italic; }
     .tool-status.done { color: #27ae60; }
+
+    /* Thinking block */
+    .thinking-block {
+      background: #1e1e30;
+      border-left: 3px solid #9b59b6;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin: 6px 0;
+      color: #a89cc8;
+      font-size: 0.85em;
+      font-style: italic;
+      line-height: 1.5;
+    }
+    .thinking-label {
+      color: #9b59b6;
+      font-size: 0.8em;
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-style: normal;
+    }
     
     /* Chart */
     .chart-container {
@@ -468,7 +488,12 @@
       template: `
         <div class="assistant-turn" v-if="hasContent || isStreaming">
           <template v-for="(item, i) in items" :key="i">
-            <div v-if="item.type === 'text'" v-html="renderMarkdown(item.content)"></div>
+            <div v-if="item.type === 'thinking'" class="thinking-block">
+              <div class="thinking-label">💭 Ragionamento</div>
+              {{ item.content }}
+            </div>
+
+            <div v-else-if="item.type === 'text'" v-html="renderMarkdown(item.content)"></div>
             
             <div v-else-if="item.type === 'tool'" class="tool-block">
               <div class="tool-header">
@@ -477,9 +502,11 @@
               </div>
               <div v-if="item.args" class="tool-details">
                 <div v-if="item.args.path" class="tool-path">📄 {{ item.args.path }}</div>
-                <div v-if="item.args.description" class="tool-description">{{ item.args.description }}</div>
-                <div v-if="item.args.command" class="tool-path">$ {{ item.args.command }}</div>
-                <div v-if="item.args.title && item.name === 'chart_display'" class="tool-description">📊 {{ item.args.title }}</div>
+                <div v-if="item.name === 'create_file' && item.args.description" class="tool-description">{{ item.args.description }}</div>
+                <div v-if="item.name === 'bash' && item.args.command" class="tool-path">$ {{ item.args.command }}</div>
+                <div v-if="item.name === 'web_fetch' && item.args.url" class="tool-path">🌐 {{ item.args.url }}</div>
+                <div v-if="item.name === 'chart_display' && item.args.title" class="tool-description">📊 {{ item.args.title }}</div>
+                <div v-if="item.name === 'render_html' && item.args.title" class="tool-description">🖼 {{ item.args.title }}</div>
               </div>
               
               <!-- Chart rendering -->
@@ -512,7 +539,7 @@
               <template v-else-if="item.name === 'present_files' && item.result">
                 <div v-if="parseFilesFromResult(item.result)" class="files-container">
                   <a v-for="file in parseFilesFromResult(item.result)" :key="file.filename"
-                     class="file-download" :href="API_URL + file.downloadUrl" :download="file.filename">
+                     class="file-download" :href="API_URL + file.downloadUrl" :download="file.filename" target="_blank" rel="noopener">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                       <polyline points="7 10 12 15 17 10"></polyline>
@@ -605,27 +632,38 @@
           return newItem;
         };
 
+        // Trova o crea l'ultimo item di thinking
+        const getOrCreateThinkingItem = () => {
+          const lastItem = currentTurn.items[currentTurn.items.length - 1];
+          if (lastItem?.type === 'thinking') {
+            return lastItem;
+          }
+          const newItem = { type: 'thinking', content: '' };
+          currentTurn.items.push(newItem);
+          return newItem;
+        };
+
         // Trova un tool esistente o lo crea nella posizione corretta
         const getOrCreateTool = (id, name, args, isComplete) => {
           let tool = toolsById.get(id);
           if (tool) {
-            // Aggiorna tool esistente
+            // Aggiorna tool esistente — muta in-place per reattività Vue
             if (args && Object.keys(args).length > 0) {
-              tool.args = { ...tool.args, ...args };
+              Object.assign(tool.args, args);
             }
             tool.isComplete = isComplete;
             return tool;
           }
           
           // Crea nuovo tool
-          tool = {
+          tool = reactive({
             type: 'tool',
             id,
             name,
             args: args || {},
             result: null,
             isComplete
-          };
+          });
           currentTurn.items.push(tool);
           toolsById.set(id, tool);
           return tool;
@@ -680,6 +718,11 @@
                 else if (event.type === 'token') {
                   const textItem = getOrCreateTextItem();
                   textItem.content += event.content;
+                  scrollToBottom();
+                }
+                else if (event.type === 'thinking') {
+                  const thinkingItem = getOrCreateThinkingItem();
+                  thinkingItem.content += event.content;
                   scrollToBottom();
                 }
                 else if (event.type === 'tool_call') {
