@@ -287,6 +287,31 @@
       let currentText = '';
       const toolMap = new Map();
 
+      // Determina il tipo di messaggio LangChain (supporta vari formati di serializzazione)
+      function getMsgType(msg) {
+        // Formato standard: msg.id = ["langchain_core", "messages", "HumanMessage"]
+        if (Array.isArray(msg.id) && msg.id.length >= 3) return msg.id[2];
+        // Formato alternativo con _type o type
+        if (msg._type) return msg._type;
+        if (msg.type) return msg.type;
+        // Formato kwargs
+        const kwargs = msg.kwargs || {};
+        if (kwargs._type) return kwargs._type;
+        if (kwargs.type) return kwargs.type;
+        return null;
+      }
+
+      // Normalizza il tipo in una delle categorie note
+      function classifyMsg(msg) {
+        const t = getMsgType(msg);
+        if (!t) return 'unknown';
+        const lower = t.toLowerCase();
+        if (lower.includes('human')) return 'human';
+        if (lower.includes('ai')) return 'ai';
+        if (lower.includes('tool')) return 'tool';
+        return 'unknown';
+      }
+
       const flushText = () => {
         if (currentText) {
           if (!currentItems) currentItems = [];
@@ -295,41 +320,123 @@
         }
       };
 
-      for (const msg of langchainMessages) {
-        const msgType = msg.id?.[2];
-        const kwargs = msg.kwargs || {};
+      // Estrae contenuto testuale e thinking da content (stringa o array di blocchi)
+      function processAIContent(content) {
+        if (!content) return;
+        
+        if (typeof content === 'string') {
+          currentText += content;
+          return;
+        }
+        
+        // content è un array di content blocks (es. Anthropic con thinking)
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (typeof block === 'string') {
+              currentText += block;
+            } else if (block.type === 'text' && block.text) {
+              currentText += block.text;
+            } else if (
+              (block.type === 'thinking' || block.type === 'reasoning') &&
+              (block.thinking || block.reasoning || block.text)
+            ) {
+              // Flush testo accumulato prima del thinking block
+              flushText();
+              if (!currentItems) currentItems = [];
+              currentItems.push({
+                type: 'thinking',
+                content: block.thinking || block.reasoning || block.text || ''
+              });
+            }
+          }
+        }
+      }
 
-        if (msgType === 'HumanMessage') {
+      // Normalizza il contenuto di un ToolMessage a stringa
+      function normalizeToolContent(content) {
+        if (content === null || content === undefined) return '';
+        if (typeof content === 'string') return content;
+        try {
+          return JSON.stringify(content);
+        } catch {
+          return String(content);
+        }
+      }
+
+      for (const msg of langchainMessages) {
+        const category = classifyMsg(msg);
+        const kwargs = msg.kwargs || msg;
+
+        if (category === 'human') {
           flushText();
           if (currentItems) {
             messages.push({ type: 'assistant-turn', items: currentItems });
             currentItems = null;
           }
-          messages.push({ type: 'user', content: kwargs.content || '' });
+          // Il contenuto umano può essere stringa o array
+          let humanContent = kwargs.content || '';
+          if (Array.isArray(humanContent)) {
+            humanContent = humanContent
+              .map(b => (typeof b === 'string' ? b : b.text || ''))
+              .join('');
+          }
+          messages.push({ type: 'user', content: humanContent });
         }
-        else if (msgType === 'AIMessageChunk' || msgType === 'AIMessage') {
+        else if (category === 'ai') {
           if (!currentItems) currentItems = [];
           
-          // Accumula testo (potrebbe arrivare in più chunk)
-          if (kwargs.content && typeof kwargs.content === 'string') {
-            currentText += kwargs.content;
-          }
+          // Processa content (stringa o array con thinking blocks)
+          processAIContent(kwargs.content);
           
           // Tool calls - prima flush del testo accumulato
-          const toolCalls = kwargs.tool_calls || [];
+          // Supporta sia il formato normalizzato (kwargs.tool_calls) che additional_kwargs
+          let toolCalls = kwargs.tool_calls || [];
+          if (toolCalls.length === 0 && kwargs.additional_kwargs?.tool_calls) {
+            // Formato OpenAI raw: {id, type:"function", function:{name, arguments}}
+            toolCalls = kwargs.additional_kwargs.tool_calls.map(tc => ({
+              id: tc.id,
+              name: tc.function?.name || tc.name || '',
+              args: (() => {
+                try { return JSON.parse(tc.function?.arguments || '{}'); }
+                catch { return tc.args || {}; }
+              })()
+            }));
+          }
           if (toolCalls.length > 0) {
             flushText();
             for (const tc of toolCalls) {
-              const toolEntry = { type: 'tool', id: tc.id, name: tc.name, args: tc.args || {}, result: null, isComplete: true };
+              const toolEntry = {
+                type: 'tool',
+                id: tc.id,
+                name: tc.name,
+                args: tc.args || {},
+                result: null,
+                isComplete: true
+              };
               currentItems.push(toolEntry);
               toolMap.set(tc.id, toolEntry);
             }
           }
         }
-        else if (msgType === 'ToolMessage') {
-          const toolEntry = toolMap.get(kwargs.tool_call_id);
+        else if (category === 'tool') {
+          const toolCallId = kwargs.tool_call_id;
+          const toolEntry = toolMap.get(toolCallId);
           if (toolEntry) {
-            toolEntry.result = kwargs.content || '';
+            toolEntry.result = normalizeToolContent(kwargs.content);
+          } else {
+            // Tool result senza tool call corrispondente — mostralo comunque
+            if (!currentItems) currentItems = [];
+            flushText();
+            const fallbackName = kwargs.name || 'tool';
+            const fallbackEntry = {
+              type: 'tool',
+              id: toolCallId || ('orphan-' + Math.random().toString(36).slice(2)),
+              name: fallbackName,
+              args: {},
+              result: normalizeToolContent(kwargs.content),
+              isComplete: true
+            };
+            currentItems.push(fallbackEntry);
           }
         }
       }
