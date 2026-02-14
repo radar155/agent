@@ -24,7 +24,7 @@ function listSqliteThreads(): string[] {
   try {
     const db = new Database(dbPath, { readonly: true });
     const rows = db
-      .prepare("SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id")
+      .prepare("SELECT thread_id, MAX(checkpoint_id) as last_cp FROM checkpoints GROUP BY thread_id ORDER BY last_cp DESC")
       .all() as { thread_id: string }[];
     db.close();
     return rows.map((r) => r.thread_id);

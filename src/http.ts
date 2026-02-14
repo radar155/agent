@@ -8,9 +8,13 @@ import { agent } from "./agent";
 import { parseAgentStream } from "./streamParser/index.js";
 import { listThreads } from "./memory/listThreads";
 import { config } from "./services/config.js";
+import { createTitleStore } from "./services/titleStore.js";
+import { generateTitle } from "./services/titleGenerator.js";
 
 // Initialize sandbox (Docker container if needed) before anything else
 await bootstrap();
+
+const titleStore = createTitleStore();
 
 const app = express();
 const PORT = config.server.port;
@@ -31,6 +35,7 @@ type SSEEvent =
   | { type: "tool_call"; id: string; name: string; args: Record<string, unknown>; isComplete: boolean }
   | { type: "tool_result"; id: string; name: string; content: string }
   | { type: "thread_id"; threadId: string }
+  | { type: "title"; title: string }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -63,6 +68,16 @@ app.post("/chat", async (req: Request, res: Response) => {
 
   activeStreams.add(actualThreadId);
 
+  // Generate title for new conversations
+  let titlePromise: Promise<void> | null = null;
+  const isNewThread = !threadId;
+  if (isNewThread) {
+    titlePromise = generateTitle(message).then(async (title) => {
+      await titleStore.set(actualThreadId, title);
+      try { sendSSE(res, { type: "title", title }); } catch {}
+    });
+  }
+
   const threadConfig = { configurable: { thread_id: actualThreadId } };
 
   const stream = await agent.stream(
@@ -78,6 +93,9 @@ app.post("/chat", async (req: Request, res: Response) => {
     onDone: () => sendSSE(res, { type: "done" }),
     onError: (error) => sendSSE(res, { type: "error", message: error.message }),
   });
+
+  // Wait for title generation before closing the connection
+  if (titlePromise) await titlePromise;
 
   activeStreams.delete(actualThreadId);
   res.end();
@@ -106,8 +124,10 @@ app.get("/history/:threadId", async (req: Request, res: Response) => {
 app.get("/threads", async (_req: Request, res: Response) => {
   try {
     const threadIds = await listThreads();
+    const titles = await titleStore.getAll();
     const threads = threadIds.map((id) => ({
       id,
+      title: titles.get(id) || null,
       running: activeStreams.has(id),
     }));
     res.json({ threads });

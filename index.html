@@ -167,6 +167,7 @@
       border-radius: 4px;
       background: #fff;
       overflow: hidden;
+      min-height: 400px;
     }
     
     /* File Downloads */
@@ -459,11 +460,11 @@
             <button @click="$emit('new')">+ Nuova conversazione</button>
           </div>
           <div class="thread-list">
-            <div v-for="thread in threads" :key="thread"
-              class="thread-item" :class="{ active: thread === activeThreadId }"
-              @click="$emit('select', thread)" :title="thread">
-              <span v-if="runningThreads.has(thread)" class="loading-indicator" style="margin-right:8px;vertical-align:middle;background:#f39c12;"></span>
-              {{ thread.substring(0, 28) }}
+            <div v-for="thread in threads" :key="thread.id"
+              class="thread-item" :class="{ active: thread.id === activeThreadId }"
+              @click="$emit('select', thread.id)" :title="thread.id">
+              <span v-if="runningThreads.has(thread.id)" class="loading-indicator" style="margin-right:8px;vertical-align:middle;background:#f39c12;"></span>
+              {{ thread.title || thread.id.substring(0, 28) }}
             </div>
           </div>
         </div>
@@ -750,11 +751,12 @@
             const res = await fetch(`${API_URL}/threads`);
             const data = await res.json();
             const threadList = data.threads || [];
-            threads.value = threadList.map(t => t.id || t);
-            // Populate running threads from server state
+            threads.value = threadList.map(t => ({ id: t.id, title: t.title || null }));
+            // Populate running threads from server state and start polling for each
             for (const t of threadList) {
               if (t.running) {
                 runningThreads.add(t.id);
+                startPolling(t.id);
               }
             }
           } catch (err) {
@@ -923,7 +925,7 @@
                   // If this is a new thread, update sidebar and set active
                   if (!sendThreadId) {
                     activeThreadId.value = streamThreadId;
-                    threads.value = [streamThreadId, ...threads.value];
+                    threads.value = [{ id: streamThreadId, title: null }, ...threads.value];
                   }
                   if (streamThreadId === activeThreadId.value) syncDisplay();
                   continue;
@@ -945,6 +947,11 @@
                 else if (event.type === 'tool_result') {
                   const tool = ts.toolsById.get(event.id);
                   if (tool) tool.result = event.content;
+                }
+                else if (event.type === 'title') {
+                  // Update thread title in sidebar
+                  const threadEntry = threads.value.find(t => t.id === streamThreadId);
+                  if (threadEntry) threadEntry.title = event.title;
                 }
                 else if (event.type === 'error') {
                   const textItem = getOrCreateTextItem(ts);
